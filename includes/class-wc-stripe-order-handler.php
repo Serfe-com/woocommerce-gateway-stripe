@@ -303,7 +303,11 @@ class WC_Stripe_Order_Handler extends WC_Stripe_Payment_Gateway {
 					}
 
 					$this->update_fees( $order, $result->balance_transaction->id );
-					$this->get_reversal_payments( $order, $result->balance_transaction );
+					
+					// In case of a partial capture, adjust the reversal payment fees
+					if ( isset( $result->amount_refunded ) && $result->amount_refunded > 0 ) {
+						$this->get_reversal_payments( $order, $result->balance_transaction );
+					}
 				}
 
 				// This hook fires when admin manually changes order status to processing or completed.

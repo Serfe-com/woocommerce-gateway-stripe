@@ -1000,19 +1000,24 @@ abstract class WC_Stripe_Payment_Gateway extends WC_Payment_Gateway_CC {
 	 */
 	public function get_reversal_payments( $order, $balance_transaction ) {
 		// Get the next refund to the last balance associated to charge
-		$reverse_transaction = WC_Stripe_API::retrieve( 'balance_transactions?limit=1&type=refund&ending_before=' . $balance_transaction->id );
+		$reverse_transaction = WC_Stripe_API::retrieve( 'balance_transactions?limit=1&type=refund&expand[]=data.source&ending_before=' . $balance_transaction->id );
 		
 		if ( empty( $reverse_transaction->error ) ) {
 			if ( isset( $reverse_transaction->data ) && is_array( $reverse_transaction->data ) ) {
 				$reverse_balance = $reverse_transaction->data[0];
 			}
-			
-			// Generate the expected description for the reversal
-			if ( isset( $balance_transaction->description ) ) {
-				$reverse_balance_description = sprintf( __( 'REFUND FOR CHARGE (%s)', 'woocommerce-gateway-stripe' ), $balance_transaction->description );
+
+			if ( !isset( $reverse_balance ) )
+				return;
+
+			$is_reversal = false;
+			if ( isset( $reverse_balance->source->charge ) && isset( $balance_transaction->source ) ) {
+				if ( $reverse_balance->source->charge == $balance_transaction->source ) {
+					$is_reversal = true;
+				}
 			}
 
-			if ( isset( $reverse_balance ) && isset( $reverse_balance_description ) && $reverse_balance->description == $reverse_balance_description && isset( $reverse_balance->fee ) ) {
+			if ( $is_reversal && isset( $reverse_balance->fee ) ) {
 				// Fees and Net needs to both come from Stripe to be accurate as the returned
 				// values are in the local currency of the Stripe account, not from WC.
 				$fee_refund = ! empty( $reverse_balance->fee ) ? WC_Stripe_Helper::format_balance_fee( $reverse_balance, 'fee' ) : 0;
