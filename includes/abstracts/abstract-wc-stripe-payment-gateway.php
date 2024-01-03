@@ -990,6 +990,51 @@ abstract class WC_Stripe_Payment_Gateway extends WC_Payment_Gateway_CC {
 	}
 
 	/**
+	 * Check for reversal transactions (partial capture) and updates Stripe fees/net.
+	 * e.g usage would be after a partial capture of an authorized payment.
+	 *
+	 * @since 7.8.1
+	 * @version 7.8.1
+	 * @param object $order The order object
+	 * @param object $balance_transaction The balance transaction associated to original charge
+	 */
+	public function get_reversal_payments($order, $balance_transaction) {
+		// Get the next refund to the last balance associated to charge
+		$reverse_transaction = WC_Stripe_API::retrieve( 'balance_transactions?limit=1&type=refund&ending_before=' . $balance_transaction->id );
+		
+		if ( empty( $reverse_transaction->error ) ) {
+			$reverse_balance = $reverse_transaction->data[0];
+			
+			// Generate the expected description for the reversal
+			$reverse_balance_description = sprintf( __( 'REFUND FOR CHARGE (%s)', 'woocommerce-gateway-stripe' ), $balance_transaction->description );
+
+			if ( isset( $reverse_balance ) && $reverse_balance->description == $reverse_balance_description && isset( $reverse_balance->fee ) ) {
+				// Fees and Net needs to both come from Stripe to be accurate as the returned
+				// values are in the local currency of the Stripe account, not from WC.
+				$fee_refund = ! empty( $reverse_balance->fee ) ? WC_Stripe_Helper::format_balance_fee( $reverse_balance, 'fee' ) : 0;
+				$net_refund = ! empty( $reverse_balance->net ) ? WC_Stripe_Helper::format_balance_fee( $reverse_balance, 'net' ) : 0;
+
+				// Current data fee & net.
+				$fee_current = WC_Stripe_Helper::get_stripe_fee( $order );
+				$net_current = WC_Stripe_Helper::get_stripe_net( $order );
+
+				// Calculation.
+				$fee = (float) $fee_current + (float) $fee_refund;
+				$net = (float) $net_current + (float) $net_refund;
+
+				WC_Stripe_Helper::update_stripe_fee( $order, $fee );
+				WC_Stripe_Helper::update_stripe_net( $order, $net );
+
+				if ( is_callable( [ $order, 'save' ] ) ) {
+					$order->save();
+				}
+			}
+		} else {
+			WC_Stripe_Logger::log( 'Unable to update reversal fees/net meta for order: ' . $order->get_id() );
+		}
+	}
+
+	/**
 	 * Updates Stripe fees/net.
 	 * e.g usage would be after a refund.
 	 *
